@@ -1,0 +1,529 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ========== Enums ==========
+
+enum UserRole {
+  MEMBER
+  MANAGER
+  DIRECTOR
+  HR_ADMIN
+}
+
+enum GoalSheetStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum GoalCategory {
+  P_GOAL
+  V_GOAL_1
+  V_GOAL_2
+}
+
+enum EvaluationPeriodStatus {
+  UPCOMING
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum PhaseType {
+  GOAL_SETTING
+  MID_REVIEW
+  GOAL_REVISION
+  FINAL_EVALUATION
+}
+
+enum EvaluationType {
+  SELF
+  PRIMARY
+  SECONDARY
+}
+
+enum EvaluationStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+}
+
+enum AchievementScore {
+  S
+  A
+  B
+  C
+  D
+}
+
+enum FeedbackProgressStatus {
+  ON_TRACK
+  SLIGHTLY_BEHIND
+  NEEDS_IMPROVEMENT
+}
+
+enum CareerDesignSheetStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum DevelopmentPlanStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum NotificationType {
+  GOAL_SUBMITTED
+  GOAL_APPROVED
+  GOAL_REJECTED
+  FEEDBACK_RECEIVED
+  EVALUATION_CONFIRMED
+  PHASE_STARTED
+  PHASE_ENDING
+  PROGRESS_REMINDER
+  CAREER_SHEET_UPDATED
+}
+
+// ========== Organization & User ==========
+
+model User {
+  id              String    @id @default(cuid())
+  name            String
+  email           String    @unique
+  emailVerified   DateTime?
+  password        String?
+  image           String?
+  role            UserRole  @default(MEMBER)
+  employeeId      String?   @unique
+  jobTitle        String?
+  hireDate        DateTime?
+  departmentId    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  department      Department?       @relation("UserDepartment", fields: [departmentId], references: [id])
+  managedTeams    Team[]            @relation("TeamManager")
+  teamMemberships TeamMember[]
+  goalSheets      GoalSheet[]       @relation("UserGoalSheets")
+  accounts        Account[]
+  sessions        Session[]
+
+  evaluationsAsEvaluator    Evaluation[]        @relation("EvaluatorEvaluations")
+  goalProgressUpdates       GoalProgress[]
+  goalComments              GoalComment[]
+  feedbacksGiven            MidTermFeedback[]   @relation("FeedbackGiver")
+  careerSheetsAsSubject     CareerDesignSheet[] @relation("CareerSheetSubject")
+  careerSheetsAsCreator     CareerDesignSheet[] @relation("CareerSheetCreator")
+  developmentPlanOwner      DevelopmentPlan[]
+  notifications             Notification[]
+  calibrationNotes          CalibrationNote[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Department {
+  id         String   @id @default(cuid())
+  name       String
+  code       String?  @unique
+  parentId   String?
+  directorId String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  parent   Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id])
+  children Department[] @relation("DepartmentHierarchy")
+  users    User[]       @relation("UserDepartment")
+  teams    Team[]
+
+  @@map("departments")
+}
+
+model Team {
+  id           String   @id @default(cuid())
+  name         String
+  departmentId String
+  managerId    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department Department   @relation(fields: [departmentId], references: [id])
+  manager    User?        @relation("TeamManager", fields: [managerId], references: [id])
+  members    TeamMember[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String    @id @default(cuid())
+  userId    String
+  teamId    String
+  startDate DateTime  @default(now())
+  endDate   DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+  team Team @relation(fields: [teamId], references: [id])
+
+  @@unique([userId, teamId])
+  @@map("team_members")
+}
+
+// ========== Evaluation Period ==========
+
+model EvaluationPeriod {
+  id        String                 @id @default(cuid())
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  status    EvaluationPeriodStatus @default(UPCOMING)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+
+  phases     EvaluationPhase[]
+  goalSheets GoalSheet[]
+
+  @@map("evaluation_periods")
+}
+
+model EvaluationPhase {
+  id                 String    @id @default(cuid())
+  evaluationPeriodId String
+  phaseType          PhaseType
+  startDate          DateTime
+  endDate            DateTime
+  isActive           Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  evaluationPeriod EvaluationPeriod @relation(fields: [evaluationPeriodId], references: [id])
+
+  @@unique([evaluationPeriodId, phaseType])
+  @@map("evaluation_phases")
+}
+
+// ========== Goals ==========
+
+model GoalSheet {
+  id                 String          @id @default(cuid())
+  userId             String
+  evaluationPeriodId String
+  status             GoalSheetStatus @default(DRAFT)
+  submittedAt        DateTime?
+  approvedAt         DateTime?
+  rejectedAt         DateTime?
+  rejectionComment   String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  user             User             @relation("UserGoalSheets", fields: [userId], references: [id])
+  evaluationPeriod EvaluationPeriod @relation(fields: [evaluationPeriodId], references: [id])
+  goals            Goal[]
+  evaluations      Evaluation[]
+  midTermFeedbacks MidTermFeedback[]
+
+  @@unique([userId, evaluationPeriodId])
+  @@map("goal_sheets")
+}
+
+model Goal {
+  id             String       @id @default(cuid())
+  goalSheetId    String
+  category       GoalCategory
+  title          String
+  description    String?
+  kpiDescription String?
+  weight         Float        @default(0)
+  orderIndex     Int          @default(0)
+  isDeleted      Boolean      @default(false)
+  deletedReason  String?
+  previousGoalId String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  goalSheet       GoalSheet            @relation(fields: [goalSheetId], references: [id])
+  progressRecords GoalProgress[]
+  comments        GoalComment[]
+  evaluationItems GoalEvaluation[]
+  feedbackItems   MidTermFeedbackItem[]
+
+  @@map("goals")
+}
+
+model GoalProgress {
+  id           String   @id @default(cuid())
+  goalId       String
+  recordedById String
+  recordedAt   DateTime @default(now())
+  progressRate Float    @default(0)
+  comment      String?
+  createdAt    DateTime @default(now())
+
+  goal       Goal @relation(fields: [goalId], references: [id])
+  recordedBy User @relation(fields: [recordedById], references: [id])
+
+  @@map("goal_progress")
+}
+
+model GoalComment {
+  id        String   @id @default(cuid())
+  goalId    String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  goal   Goal @relation(fields: [goalId], references: [id])
+  author User @relation(fields: [authorId], references: [id])
+
+  @@map("goal_comments")
+}
+
+// ========== Evaluations ==========
+
+model Evaluation {
+  id          String           @id @default(cuid())
+  goalSheetId String
+  evaluatorId String
+  type        EvaluationType
+  status      EvaluationStatus @default(DRAFT)
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  goalSheet         GoalSheet          @relation(fields: [goalSheetId], references: [id])
+  evaluator         User               @relation("EvaluatorEvaluations", fields: [evaluatorId], references: [id])
+  goalEvaluations   GoalEvaluation[]
+  overallEvaluation OverallEvaluation?
+
+  @@unique([goalSheetId, type])
+  @@map("evaluations")
+}
+
+model GoalEvaluation {
+  id           String           @id @default(cuid())
+  evaluationId String
+  goalId       String
+  score        AchievementScore
+  comment      String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  evaluation Evaluation @relation(fields: [evaluationId], references: [id])
+  goal       Goal       @relation(fields: [goalId], references: [id])
+
+  @@unique([evaluationId, goalId])
+  @@map("goal_evaluations")
+}
+
+model OverallEvaluation {
+  id              String           @id @default(cuid())
+  evaluationId    String           @unique
+  overallScore    AchievementScore
+  overallComment  String?
+  strengthComment String?
+  issueComment    String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  evaluation Evaluation @relation(fields: [evaluationId], references: [id])
+
+  @@map("overall_evaluations")
+}
+
+model MidTermFeedback {
+  id              String    @id @default(cuid())
+  goalSheetId     String
+  feedbackGiverId String
+  overallComment  String?
+  meetingDate     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  goalSheet     GoalSheet             @relation(fields: [goalSheetId], references: [id])
+  feedbackGiver User                  @relation("FeedbackGiver", fields: [feedbackGiverId], references: [id])
+  items         MidTermFeedbackItem[]
+
+  @@unique([goalSheetId, feedbackGiverId])
+  @@map("mid_term_feedbacks")
+}
+
+model MidTermFeedbackItem {
+  id                String                 @id @default(cuid())
+  feedbackId        String
+  goalId            String
+  progressStatus    FeedbackProgressStatus
+  comment           String?
+  recommendedAction String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  feedback MidTermFeedback @relation(fields: [feedbackId], references: [id])
+  goal     Goal            @relation(fields: [goalId], references: [id])
+
+  @@unique([feedbackId, goalId])
+  @@map("mid_term_feedback_items")
+}
+
+// ========== Career Design ==========
+
+model CareerDesignSheet {
+  id                 String                  @id @default(cuid())
+  subjectUserId      String
+  createdById        String
+  evaluationPeriodId String?
+  status             CareerDesignSheetStatus @default(DRAFT)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  subjectUser      User              @relation("CareerSheetSubject", fields: [subjectUserId], references: [id])
+  createdBy        User              @relation("CareerSheetCreator", fields: [createdById], references: [id])
+  strengths        Strength[]
+  developmentAreas DevelopmentArea[]
+  developmentPlans DevelopmentPlan[]
+  careerAspiration CareerAspiration?
+
+  @@map("career_design_sheets")
+}
+
+model Strength {
+  id         String   @id @default(cuid())
+  sheetId    String
+  content    String
+  evidence   String?
+  orderIndex Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  sheet CareerDesignSheet @relation(fields: [sheetId], references: [id])
+
+  @@map("strengths")
+}
+
+model DevelopmentArea {
+  id           String   @id @default(cuid())
+  sheetId      String
+  content      String
+  currentLevel Int      @default(1)
+  targetLevel  Int      @default(3)
+  orderIndex   Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sheet CareerDesignSheet @relation(fields: [sheetId], references: [id])
+
+  @@map("development_areas")
+}
+
+model DevelopmentPlan {
+  id         String                @id @default(cuid())
+  sheetId    String
+  action     String
+  dueDate    DateTime?
+  ownerId    String?
+  status     DevelopmentPlanStatus @default(PLANNED)
+  orderIndex Int                   @default(0)
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
+  sheet CareerDesignSheet @relation(fields: [sheetId], references: [id])
+  owner User?             @relation(fields: [ownerId], references: [id])
+
+  @@map("development_plans")
+}
+
+model CareerAspiration {
+  id             String   @id @default(cuid())
+  sheetId        String   @unique
+  shortTermGoal  String?
+  longTermGoal   String?
+  memberComment  String?
+  managerComment String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  sheet CareerDesignSheet @relation(fields: [sheetId], references: [id])
+
+  @@map("career_aspirations")
+}
+
+// ========== Notifications ==========
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String?
+  linkUrl   String?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+// ========== Calibration ==========
+
+model CalibrationNote {
+  id                 String   @id @default(cuid())
+  evaluationPeriodId String
+  authorId           String
+  content            String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  author User @relation(fields: [authorId], references: [id])
+
+  @@map("calibration_notes")
+}
