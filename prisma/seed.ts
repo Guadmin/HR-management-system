@@ -3,14 +3,19 @@ import bcrypt from "bcryptjs";
 
 const { Client } = pg;
 
-const PG_CONFIG = {
-  host: "localhost",
-  port: 51214,
-  user: "postgres",
-  password: "postgres",
-  database: "template1",
-  ssl: false,
-};
+// Use SEED_DATABASE_URL env var if provided, otherwise fall back to local dev server
+const SEED_DATABASE_URL = process.env.SEED_DATABASE_URL;
+
+const PG_CONFIG: pg.ClientConfig = SEED_DATABASE_URL
+  ? { connectionString: SEED_DATABASE_URL, ssl: { rejectUnauthorized: false } }
+  : {
+      host: "localhost",
+      port: 51214,
+      user: "postgres",
+      password: "postgres",
+      database: "template1",
+      ssl: false,
+    };
 
 // Execute multiple SQL statements using a single client connection
 async function sql(queries: string[]): Promise<pg.QueryResult[]> {
